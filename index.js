@@ -1,3 +1,4 @@
+const express = require('express');
 const { 
     Client, 
     GatewayIntentBits, 
@@ -14,15 +15,26 @@ const {
     SlashCommandBuilder,
     PermissionFlagsBits
 } = require('discord.js');
-const express = require('express');
 
-// --- 1. Web Server สำหรับ Render Keep-Alive ---
+// ==========================================
+// 1. WEB SERVER (สำคัญที่สุดสำหรับ Web Service บน Render)
+// ==========================================
 const app = express();
-app.get('/', (req, res) => res.send('Leave Bot Status: Online 24/7'));
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Keep-alive web server is running on port ${PORT}`));
 
-// --- 2. สร้าง Discord Client ---
+app.get('/', (req, res) => {
+    res.status(200).send('Bot Status: Web Service is Live and Running 24/7');
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`========================================`);
+    console.log(`🚀 Web server listening on port ${PORT}`);
+    console.log(`========================================`);
+});
+
+// ==========================================
+// 2. DISCORD BOT SETUP
+// ==========================================
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -30,55 +42,46 @@ const client = new Client({
     ]
 });
 
-// ตัวแปรเก็บ ID ห้อง Log ชั่วคราว
 let logChannelId = null;
 
-// --- 3. ลงทะเบียน Slash Commands (/setup และ /log) ---
+// ลงทะเบียน Slash Commands
 const commands = [
     new SlashCommandBuilder()
         .setName('setup')
-        .setDescription('สร้างปุ่มสำหรับยื่นเรื่องแจ้งลาออนไลน์ ( Admin )')
+        .setDescription('สร้างปุ่มสำหรับยื่นเรื่องแจ้งลาออนไลน์ (Admin)')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder()
         .setName('log')
-        .setDescription('เซ็ทห้องนี้ให้เป็นห้องส่ง Log การแจ้งลา ( Admin )')
+        .setDescription('เซ็ทห้องนี้ให้เป็นห้องส่ง Log การแจ้งลา (Admin)')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(cmd => cmd.toJSON());
 
-// เมื่อบอทเชื่อมต่อ Discord สำเร็จ
 client.once(Events.ClientReady, async c => {
-    console.log(`========================================`);
-    console.log(`✅ SUCCESS: Logged in as ${c.user.tag}`);
-    console.log(`========================================`);
+    console.log(`✅ DISCORD BOT ONLINE: ${c.user.tag}`);
 
     const token = process.env.DISCORD_TOKEN;
-    if (!token) {
-        console.error('❌ ERROR: ไม่พบค่า DISCORD_TOKEN ใน Environment Variable!');
-        return;
-    }
+    if (!token) return;
 
     const rest = new REST({ version: '10' }).setToken(token);
     try {
-        console.log('🔄 กำลังลงทะเบียน Slash Commands (/setup, /log)...');
         await rest.put(
             Routes.applicationCommands(c.user.id),
             { body: commands }
         );
-        console.log('✅ ลงทะเบียน Slash Commands เรียบร้อยแล้ว!');
+        console.log('✅ Slash Commands (/setup, /log) registered!');
     } catch (error) {
-        console.error('❌ เกิดข้อผิดพลาดในการลงทะเบียน Slash Commands:', error);
+        console.error('❌ Error registering Slash Commands:', error);
     }
 });
 
-// --- 4. จัดการการใช้งาน ปุ่มกด และ Slash Commands ---
+// ==========================================
+// 3. INTERACTIONS (คำสั่ง /setup, /log, ปุ่ม และ Modal)
+// ==========================================
 client.on(Events.InteractionCreate, async interaction => {
     try {
-        // ------------------- Slash Commands -------------------
+        // --- Slash Commands ---
         if (interaction.isChatInputCommand()) {
-            const { commandName } = interaction;
-
-            // คำสั่ง /setup
-            if (commandName === 'setup') {
+            if (interaction.commandName === 'setup') {
                 const embed = new EmbedBuilder()
                     .setTitle('📝 ระบบแจ้งลาออนไลน์')
                     .setDescription('กรุณากดปุ่ม **"ยื่นเรื่องแจ้งลา"** ด้านล่างเพื่อกรอกชื่อ IC และสาเหตุการลาครับ')
@@ -97,8 +100,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 await interaction.channel.send({ embeds: [embed], components: [row] });
             }
 
-            // คำสั่ง /log
-            if (commandName === 'log') {
+            if (interaction.commandName === 'log') {
                 logChannelId = interaction.channelId;
                 await interaction.reply({ 
                     content: `✅ ตั้งค่าให้ห้อง ${interaction.channel} เป็นห้องส่ง **Log การแจ้งลา** เรียบร้อยแล้วครับ!`, 
@@ -107,7 +109,7 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         }
 
-        // ------------------- ปุ่มกด (Button) -------------------
+        // --- กดปุ่ม "ยื่นเรื่องแจ้งลา" ---
         if (interaction.isButton() && interaction.customId === 'btn_leave_modal') {
             const modal = new ModalBuilder()
                 .setCustomId('leave_modal_submit')
@@ -143,7 +145,7 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.showModal(modal);
         }
 
-        // ------------------- ส่งแบบฟอร์ม (Modal Submit) -------------------
+        // --- ส่งแบบฟอร์ม (Modal Submit) ---
         if (interaction.isModalSubmit() && interaction.customId === 'leave_modal_submit') {
             if (!logChannelId) {
                 return await interaction.reply({ 
@@ -182,15 +184,15 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-// --- 5. ตรวจสอบการ Login ---
+// ==========================================
+// 4. BOT LOGIN
+// ==========================================
 const BOT_TOKEN = process.env.DISCORD_TOKEN;
 
 if (!BOT_TOKEN) {
-    console.error('❌ [CRITICAL ERROR] ไม่พบค่า DISCORD_TOKEN ใน Environment Variables!');
-    console.error('👉 กรุณาไปที่ Render.com -> Environment -> เพิ่ม Key: DISCORD_TOKEN แล้วใส่ Bot Token ลงไปครับ');
+    console.error('❌ [ERROR] DISCORD_TOKEN is missing in Environment Variables!');
 } else {
     client.login(BOT_TOKEN).catch(err => {
-        console.error('❌ [LOGIN FAILED] ไม่สามารถล็อกอินเข้า Discord ได้:', err.message);
-        console.error('👉 โปรดตรวจสอบว่า Token ถูกต้อง หรือ Reset Token ใน Discord Developer Portal ใหม่อีกครั้ง');
+        console.error('❌ [LOGIN FAILED]', err.message);
     });
 }
